@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WAF Management Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <i class="fas fa-shield-alt"></i>
+        <span>WAF Manager</span>
+      </div>
+      <nav class="nav">
+        <a href="#dashboard" class="nav-item active" data-page="dashboard">
+          <i class="fas fa-chart-line"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="#rules" class="nav-item" data-page="rules">
+          <i class="fas fa-list-check"></i>
+          <span>Rules</span>
+        </a>
+        <a href="#logs" class="nav-item" data-page="logs">
+          <i class="fas fa-file-alt"></i>
+          <span>Logs</span>
+        </a>
+        <a href="#blocked" class="nav-item" data-page="blocked">
+          <i class="fas fa-ban"></i>
+          <span>Blocked IPs</span>
+        </a>
+        <a href="#test" class="nav-item" data-page="test">
+          <i class="fas fa-vial"></i>
+          <span>Test Rules</span>
+        </a>
+        <a href="#bots" class="nav-item" data-page="bots">
+          <i class="fas fa-robot"></i>
+          <span>Bot Detection</span>
+        </a>
+        <a href="#geo" class="nav-item" data-page="geo">
+          <i class="fas fa-globe"></i>
+          <span>Geo Blocking</span>
+        </a>
+        <a href="#webhooks" class="nav-item" data-page="webhooks">
+          <i class="fas fa-bell"></i>
+          <span>Webhooks</span>
+        </a>
+        <a href="#settings" class="nav-item" data-page="settings">
+          <i class="fas fa-cog"></i>
+          <span>Settings</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="status-indicator">
+          <span class="status-dot active"></span>
+          <span class="status-text">WAF Active</span>
+        </div>
+        <div class="author-branding">
+          <small>Made by <strong>Abhirup Guha</strong></small>
+          <small>A.K.A <span class="fir3st0rm">Fir3St0rm</span></small>
+          <small>@ Info Security Solution</small>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main">
+      <!-- Header -->
+      <header class="header">
+        <h1 id="page-title">Dashboard</h1>
+        <div class="header-actions">
+          <button class="btn btn-secondary" id="refresh-btn">
+            <i class="fas fa-sync-alt"></i> Refresh
+          </button>
+        </div>
+      </header>
+
+      <!-- Dashboard Page -->
+      <div class="page active" id="dashboard-page">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon bg-blue">
+              <i class="fas fa-shield-alt"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="total-requests">0</span>
+              <span class="stat-label">Total Requests</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon bg-red">
+              <i class="fas fa-ban"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="blocked-requests">0</span>
+              <span class="stat-label">Blocked Requests</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon bg-orange">
+              <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="threats-detected">0</span>
+              <span class="stat-label">Threats Detected</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon bg-green">
+              <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="active-rules">0</span>
+              <span class="stat-label">Active Rules</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <div class="card">
+            <div class="card-header">
+              <h3>Traffic Overview</h3>
+              <select id="time-range">
+                <option value="1h">Last Hour</option>
+                <option value="24h" selected>Last 24 Hours</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+              </select>
+            </div>
+            <div class="card-body">
+              <canvas id="traffic-chart"></canvas>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Threats by Type</h3>
+            </div>
+            <div class="card-body">
+              <canvas id="threats-chart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Recent Blocked Requests</h3>
+            <a href="#logs" class="link" data-page="logs">View All</a>
+          </div>
+          <div class="card-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>IP Address</th>
+                  <th>Method</th>
+                  <th>Path</th>
+                  <th>Threat Type</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="recent-logs">
+                <tr><td colspan="6" class="text-center">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Rules Page -->
+      <div class="page" id="rules-page">
+        <div class="card">
+          <div class="card-header">
+            <h3>Security Rules</h3>
+            <button class="btn btn-primary" id="add-rule-btn">
+              <i class="fas fa-plus"></i> Add Rule
+            </button>
+          </div>
+          <div class="card-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Severity</th>
+                  <th>Action</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="rules-table">
+                <tr><td colspan="6" class="text-center">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logs Page -->
+      <div class="page" id="logs-page">
+        <div class="card">
+          <div class="card-header">
+            <h3>Request Logs</h3>
+            <div class="filter-group">
+              <select id="log-filter">
+                <option value="all">All Requests</option>
+                <option value="blocked">Blocked Only</option>
+              </select>
+              <button class="btn btn-secondary" id="clear-logs-btn">
+                <i class="fas fa-trash"></i> Clear Logs
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>IP Address</th>
+                  <th>Method</th>
+                  <th>Path</th>
+                  <th>Status</th>
+                  <th>Threats</th>
+                </tr>
+              </thead>
+              <tbody id="logs-table">
+                <tr><td colspan="6" class="text-center">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Blocked IPs Page -->
+      <div class="page" id="blocked-page">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header">
+              <h3>Blocked IPs</h3>
+              <button class="btn btn-primary" id="block-ip-btn">
+                <i class="fas fa-plus"></i> Block IP
+              </button>
+            </div>
+            <div class="card-body">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>IP Address</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="blocked-ips-table">
+                  <tr><td colspan="2" class="text-center">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Whitelisted IPs</h3>
+              <button class="btn btn-primary" id="whitelist-ip-btn">
+                <i class="fas fa-plus"></i> Whitelist IP
+              </button>
+            </div>
+            <div class="card-body">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>IP Address</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="whitelisted-ips-table">
+                  <tr><td colspan="2" class="text-center">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Test Page -->
+      <div class="page" id="test-page">
+        <div class="card">
+          <div class="card-header">
+            <h3>Test Request Against Rules</h3>
+          </div>
+          <div class="card-body">
+            <form id="test-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Method</label>
+                  <select name="method" class="form-control">
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                </div>
+                <div class="form-group flex-1">
+                  <label>URL / Path</label>
+                  <input type="text" name="url" class="form-control" placeholder="/api/search?q=test" value="/api/search?q=test">
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Query Parameters (JSON)</label>
+                <textarea name="query" class="form-control" rows="3" placeholder='{"q": "test"}'>{}</textarea>
+              </div>
+              <div class="form-group">
+                <label>Request Body (JSON)</label>
+                <textarea name="body" class="form-control" rows="5" placeholder='{"username": "admin"}'></textarea>
+              </div>
+              <div class="form-group">
+                <label>Headers (JSON)</label>
+                <textarea name="headers" class="form-control" rows="3" placeholder='{"Content-Type": "application/json"}'></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <i class="fas fa-play"></i> Test Request
+              </button>
+            </form>
+
+            <div id="test-result" class="test-result hidden">
+              <h4>Test Result</h4>
+              <div class="result-status" id="test-status"></div>
+              <div class="result-details" id="test-details"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Attack Examples</h3>
+          </div>
+          <div class="card-body">
+            <div class="attack-examples">
+              <div class="attack-card" data-attack="sql">
+                <h4>SQL Injection</h4>
+                <code>' OR '1'='1</code>
+                <p>Attempts to bypass authentication by injecting SQL code</p>
+              </div>
+              <div class="attack-card" data-attack="xss">
+                <h4>Cross-Site Scripting (XSS)</h4>
+                <code>&lt;script&gt;alert('xss')&lt;/script&gt;</code>
+                <p>Injects malicious scripts into web pages</p>
+              </div>
+              <div class="attack-card" data-attack="path">
+                <h4>Path Traversal</h4>
+                <code>../../../etc/passwd</code>
+                <p>Attempts to access files outside the web root</p>
+              </div>
+              <div class="attack-card" data-attack="command">
+                <h4>Command Injection</h4>
+                <code>; cat /etc/passwd</code>
+                <p>Executes arbitrary system commands</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bot Detection Page -->
+      <div class="page" id="bots-page">
+        <div class="card">
+          <div class="card-header">
+            <h3>Bot Detection</h3>
+            <label class="toggle">
+              <input type="checkbox" id="bot-detection-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="card-body">
+            <p class="help-text">Automatically detect and block malicious bots, scrapers, and automated tools.</p>
+            
+            <div class="settings-section">
+              <h4>Blocked Bots</h4>
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Bot Name</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="blocked-bots-table">
+                  <tr><td colspan="2" class="text-center">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            
+            <div class="settings-section">
+              <h4>Allowed Bots</h4>
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Bot Name</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="allowed-bots-table">
+                  <tr><td colspan="2" class="text-center">Loading...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Geo Blocking Page -->
+      <div class="page" id="geo-page">
+        <div class="card">
+          <div class="card-header">
+            <h3>Geo Blocking</h3>
+            <label class="toggle">
+              <input type="checkbox" id="geo-blocking-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="card-body">
+            <p class="help-text">Block requests based on country of origin.</p>
+            
+            <div class="grid-2">
+              <div>
+                <h4>Blocked Countries</h4>
+                <div class="form-group">
+                  <input type="text" id="block-country-input" class="form-control" placeholder="Enter country code (e.g., CN)">
+                  <button class="btn btn-danger" id="block-country-btn">
+                    <i class="fas fa-ban"></i> Block Country
+                  </button>
+                </div>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Name</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="blocked-countries-table">
+                    <tr><td colspan="3" class="text-center">No blocked countries</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              
+              <div>
+                <h4>Allowed Countries Only</h4>
+                <div class="form-group">
+                  <input type="text" id="allow-country-input" class="form-control" placeholder="Enter country code (e.g., US)">
+                  <button class="btn btn-success" id="allow-country-btn">
+                    <i class="fas fa-check"></i> Allow Country
+                  </button>
+                </div>
+                <p class="help-text">If any countries are added here, only those countries will be allowed.</p>
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Name</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="allowed-countries-table">
+                    <tr><td colspan="3" class="text-center">All countries allowed</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Webhooks Page -->
+      <div class="page" id="webhooks-page">
+        <div class="card">
+          <div class="card-header">
+            <h3>Webhook Notifications</h3>
+            <button class="btn btn-primary" id="add-webhook-btn">
+              <i class="fas fa-plus"></i> Add Webhook
+            </button>
+          </div>
+          <div class="card-body">
+            <p class="help-text">Receive real-time notifications when attacks are detected.</p>
+            
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>URL</th>
+                  <th>Events</th>
+                  <th>Min Severity</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="webhooks-table">
+                <tr><td colspan="5" class="text-center">No webhooks configured</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Page -->
+      <div class="page" id="settings-page">
+        <div class="card">
+          <div class="card-header">
+            <h3>WAF Settings</h3>
+          </div>
+          <div class="card-body">
+            <div class="settings-section">
+              <h4>Import/Export</h4>
+              <div class="form-group">
+                <button class="btn btn-secondary" id="export-config-btn">
+                  <i class="fas fa-download"></i> Export Configuration
+                </button>
+                <button class="btn btn-secondary" id="import-config-btn">
+                  <i class="fas fa-upload"></i> Import Configuration
+                </button>
+                <input type="file" id="import-file" accept=".json" style="display: none;">
+              </div>
+              <p class="help-text">Backup or restore your WAF configuration including rules, blocked IPs, and settings.</p>
+            </div>
+            <div class="settings-section">
+              <h4>Statistics</h4>
+              <button class="btn btn-danger" id="reset-stats-btn">
+                <i class="fas fa-redo"></i> Reset All Statistics
+              </button>
+              <p class="help-text">This will reset all request counters and threat statistics.</p>
+            </div>
+            <div class="settings-section">
+              <h4>Data Management</h4>
+              <button class="btn btn-danger" id="clear-all-logs-btn">
+                <i class="fas fa-trash"></i> Clear All Logs
+              </button>
+              <p class="help-text">This will permanently delete all request logs.</p>
+            </div>
+            <div class="settings-section">
+              <h4>Features</h4>
+              <ul>
+                <li>✅ SQL Injection protection</li>
+                <li>✅ XSS prevention</li>
+                <li>✅ Path traversal detection</li>
+                <li>✅ Command injection blocking</li>
+                <li>✅ Bot detection</li>
+                <li>✅ Geo-blocking</li>
+                <li>✅ Rate limiting</li>
+                <li>✅ IP blacklisting/whitelisting</li>
+                <li>✅ Webhook notifications</li>
+                <li>✅ Request sanitization</li>
+                <li>✅ Real-time monitoring</li>
+              </ul>
+            </div>
+            <div class="settings-section">
+              <h4>About</h4>
+              <p><strong>Web Application Firewall v2.0.0</strong></p>
+              <p>An enhanced rule-based WAF for Node.js applications.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal for adding/editing rules -->
+  <div class="modal" id="rule-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Add Rule</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="rule-form">
+        <input type="hidden" id="rule-id">
+        <div class="form-group">
+          <label>Rule Name</label>
+          <input type="text" id="rule-name" class="form-control" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Type</label>
+            <select id="rule-type" class="form-control">
+              <option value="sql_injection">SQL Injection</option>
+              <option value="xss">XSS</option>
+              <option value="path_traversal">Path Traversal</option>
+              <option value="command_injection">Command Injection</option>
+              <option value="lfi">LFI/RFI</option>
+              <option value="nosql_injection">NoSQL Injection</option>
+              <option value="xxe">XXE</option>
+              <option value="ssti">SSTI</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Severity</label>
+            <select id="rule-severity" class="form-control">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Pattern (Regex)</label>
+          <input type="text" id="rule-pattern" class="form-control" required placeholder="e.g., union.*select">
+          <small class="help-text">JavaScript regular expression pattern</small>
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea id="rule-description" class="form-control" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Action</label>
+          <select id="rule-action" class="form-control">
+            <option value="block">Block</option>
+            <option value="log">Log Only</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="checkbox">
+            <input type="checkbox" id="rule-enabled" checked>
+            <span>Enabled</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Rule</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal for IP management -->
+  <div class="modal" id="ip-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="ip-modal-title">Block IP Address</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="ip-form">
+        <input type="hidden" id="ip-action">
+        <div class="form-group">
+          <label>IP Address</label>
+          <input type="text" id="ip-address" class="form-control" required placeholder="192.168.1.1">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Confirm</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal for webhook management -->
+  <div class="modal" id="webhook-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="webhook-modal-title">Add Webhook</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="webhook-form">
+        <input type="hidden" id="webhook-id">
+        <div class="form-group">
+          <label>Webhook URL</label>
+          <input type="url" id="webhook-url" class="form-control" required placeholder="https://hooks.slack.com/services/...">
+        </div>
+        <div class="form-group">
+          <label>Events</label>
+          <select id="webhook-events" class="form-control" multiple>
+            <option value="all">All Events</option>
+            <option value="block">Blocked Requests</option>
+            <option value="rate_limit">Rate Limit Exceeded</option>
+            <option value="geo_block">Geo Block</option>
+            <option value="bot_detected">Bot Detected</option>
+          </select>
+          <small class="help-text">Hold Ctrl/Cmd to select multiple</small>
+        </div>
+        <div class="form-group">
+          <label>Minimum Severity</label>
+          <select id="webhook-severity" class="form-control">
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>HTTP Method</label>
+          <select id="webhook-method" class="form-control">
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Custom Headers (JSON)</label>
+          <textarea id="webhook-headers" class="form-control" rows="2" placeholder='{"Authorization": "Bearer token"}'></textarea>
+        </div>
+        <div class="form-group">
+          <label class="checkbox">
+            <input type="checkbox" id="webhook-enabled" checked>
+            <span>Enabled</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Webhook</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toast-container"></div>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div class="footer-content">
+      <p>🛡️ <strong>Kavach WAF</strong> — Made with ❤️ by <strong>Abhirup Guha</strong> (Fir3St0rm)</p>
+      <p class="footer-company">@ Info Security Solution</p>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

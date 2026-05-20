@@ -1,0 +1,68 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffd700"/>
+      <stop offset="100%" style="stop-color:#ffa500"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="512" height="512" rx="80" fill="url(#bgGrad)"/>
+  
+  <!-- Shield -->
+  <g transform="translate(256, 220)">
+    <path d="M 0,-100 
+             C 50,-100 85,-65 85,-15 
+             C 85,55 0,130 0,130 
+             C 0,130 -85,55 -85,-15 
+             C -85,-65 -50,-100 0,-100 Z" 
+          fill="#e94560" 
+          stroke="url(#goldGrad)" 
+          stroke-width="6"
+          filter="url(#glow)"/>
+    
+    <!-- Om Symbol -->
+    <text x="0" y="25" 
+          font-family="Arial, sans-serif" 
+          font-size="100" 
+          fill="url(#goldGrad)" 
+          text-anchor="middle"
+          font-weight="bold"
+          filter="url(#glow)">ॐ</text>
+  </g>
+  
+  <!-- Text -->
+  <text x="256" y="400" 
+        font-family="Arial, sans-serif" 
+        font-size="48" 
+        fill="url(#goldGrad)" 
+        text-anchor="middle"
+        font-weight="bold"
+        letter-spacing="3">KAVACH</text>
+  
+  <text x="256" y="440" 
+        font-family="Arial, sans-serif" 
+        font-size="16" 
+        fill="#ffffff" 
+        text-anchor="middle"
+        opacity="0.8">WAF</text>
+  
+  <!-- Author -->
+  <text x="256" y="480" 
+        font-family="Arial, sans-serif" 
+        font-size="12" 
+        fill="#ffd700" 
+        text-anchor="middle"
+        opacity="0.9">by Fir3St0rm</text>
+</svg>

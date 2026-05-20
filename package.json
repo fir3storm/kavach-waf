@@ -1,0 +1,47 @@
+{
+  "name": "kavach-waf",
+  "version": "1.0.0",
+  "description": "🛡️ Kavach WAF - A powerful Web Application Firewall inspired by ancient Indian concepts of protection. Features bot detection, geo-blocking, real-time dashboard, and comprehensive security rules.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "node test/test.js"
+  },
+  "keywords": [
+    "waf",
+    "web-application-firewall",
+    "security",
+    "firewall",
+    "web-security",
+    "bot-detection",
+    "geo-blocking",
+    "sql-injection",
+    "xss",
+    "nodejs",
+    "express",
+    "middleware"
+  ],
+  "author": "Abhirup Guha A.K.A Fir3St0rm <fir3st0rm@infosecurity.solution> (Info Security Solution)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/kavach-waf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/kavach-waf/issues"
+  },
+  "homepage": "https://github.com/yourusername/kavach-waf#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
