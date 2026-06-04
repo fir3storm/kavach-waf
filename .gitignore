@@ -44,3 +44,6 @@ temp/
 waf-logs/
 data/*.json
 !data/.gitkeep
+
+# AI Assistant configuration
+.commandcode/
