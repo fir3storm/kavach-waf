@@ -10,12 +10,198 @@ let charts = {};
 let refreshInterval = null;
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  initLogin();
   initNavigation();
   initEventListeners();
-  loadDashboardData();
-  startAutoRefresh();
+  // Try existing session, then fall back to login.
+  const ok = await checkAuth();
+  if (ok) startAutoRefresh();
 });
+
+function initLogin() {
+  const form = document.getElementById('login-form');
+  if (!form) return;
+  form.addEventListener('submit', handleLoginSubmit);
+}
+
+// Theme handling
+function initTheme() {
+  const saved = localStorage.getItem('kavach-theme');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const theme = saved || (prefersDark ? 'dark' : 'light');
+  setTheme(theme);
+
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      const current = document.documentElement.getAttribute('data-theme');
+      setTheme(current === 'dark' ? 'light' : 'dark');
+    });
+  }
+}
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('kavach-theme', theme);
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) {
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+  }
+  // Update chart colors if charts exist
+  updateChartTheme(theme);
+}
+
+function updateChartTheme(theme) {
+  const textColor = theme === 'dark' ? '#f1f5f9' : '#111827';
+  const gridColor = theme === 'dark' ? '#334155' : '#e5e7eb';
+  Object.values(charts).forEach(chart => {
+    if (!chart || !chart.options) return;
+    if (chart.options.scales && chart.options.scales.x) {
+      chart.options.scales.x.ticks = { color: textColor };
+      chart.options.scales.x.grid = { color: gridColor };
+    }
+    if (chart.options.scales && chart.options.scales.y) {
+      chart.options.scales.y.ticks = { color: textColor };
+      chart.options.scales.y.grid = { color: gridColor };
+    }
+    if (chart.options.plugins && chart.options.plugins.legend) {
+      chart.options.plugins.legend.labels = { color: textColor };
+    }
+    chart.update();
+  });
+}
+
+// WebSocket for real-time updates
+function initWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/ws`;
+  let ws;
+  try {
+    ws = new WebSocket(wsUrl);
+  } catch {
+    return;
+  }
+  ws.onopen = () => console.log('WebSocket connected');
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'threat' && currentPage === 'dashboard') {
+        loadDashboardData();
+      }
+      if (data.type === 'memory' && currentPage === 'dashboard') {
+        updateMemoryBar(data);
+      }
+    } catch {}
+  };
+  ws.onclose = () => {
+    // Reconnect after 5 seconds
+    setTimeout(initWebSocket, 5000);
+  };
+}
+
+async function handleLoginSubmit(e) {
+  e.preventDefault();
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errorEl = document.getElementById('login-error');
+  const btn = document.getElementById('login-submit-btn');
+
+  errorEl.hidden = true;
+  btn.disabled = true;
+  const origText = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const msg = res.status === 429
+        ? 'Account locked. Try again later.'
+        : (body.error || `Login failed (${res.status})`);
+      errorEl.textContent = msg;
+      errorEl.hidden = false;
+      return;
+    }
+    const data = await res.json();
+    showApp(data.user);
+  } catch (err) {
+    errorEl.textContent = 'Network error: ' + err.message;
+    errorEl.hidden = false;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origText;
+  }
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'same-origin' });
+    if (res.ok) {
+      const data = await res.json();
+      showApp(data.user);
+      return true;
+    }
+  } catch {
+    // fall through to login
+  }
+  showLogin();
+  return false;
+}
+
+function showApp(user) {
+  document.getElementById('login-page')?.classList.remove('active');
+  document.getElementById('login-page')?.setAttribute('hidden', '');
+  const shell = document.getElementById('app-shell');
+  if (shell) shell.removeAttribute('hidden');
+
+  // Hide login page entirely after login
+  const lp = document.getElementById('login-page');
+  if (lp) lp.style.display = 'none';
+
+  if (user) {
+    const nameEl = document.getElementById('user-display-name');
+    const roleEl = document.getElementById('user-role');
+    if (nameEl) nameEl.textContent = user.displayName || user.username;
+    if (roleEl) roleEl.textContent = user.role || '';
+    // Show admin-only items
+    document.querySelectorAll('.admin-only').forEach((el) => {
+      const show = user.role === 'admin';
+      el.hidden = !show;
+    });
+  }
+
+  // Kick off the dashboard
+  loadDashboardData();
+  if (!refreshInterval) startAutoRefresh();
+}
+
+function showLogin() {
+  const shell = document.getElementById('app-shell');
+  if (shell) shell.setAttribute('hidden', '');
+  const lp = document.getElementById('login-page');
+  if (lp) {
+    lp.style.display = '';
+    lp.classList.add('active');
+  }
+}
+
+async function logout() {
+  try {
+    await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'same-origin' });
+  } catch {}
+  // Clear any state
+  if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+  showLogin();
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-username').focus();
+}
 
 // Navigation
 function initNavigation() {
@@ -83,6 +269,12 @@ function navigateTo(page) {
       break;
     case 'settings':
       loadSettings();
+      break;
+    case 'users':
+      loadUsers();
+      break;
+    case 'audit':
+      loadAuditLog();
       break;
   }
 }
@@ -205,16 +397,40 @@ function initEventListeners() {
       importConfig(e.target.files[0]);
     }
   });
+
+  // Logout
+  document.getElementById('logout-btn')?.addEventListener('click', logout);
+
+  // User management (admin)
+  document.getElementById('add-user-btn')?.addEventListener('click', () => openUserModal());
+  document.getElementById('user-form')?.addEventListener('submit', handleUserSubmit);
+
+  // Password change
+  document.getElementById('change-password-btn')?.addEventListener('click', () => {
+    document.getElementById('password-modal').classList.add('active');
+  });
+  document.getElementById('password-form')?.addEventListener('submit', handlePasswordChange);
+
+  // Audit log
+  document.getElementById('audit-refresh-btn')?.addEventListener('click', loadAuditLog);
+  document.getElementById('audit-user-filter')?.addEventListener('change', loadAuditLog);
+  document.getElementById('audit-action-filter')?.addEventListener('change', loadAuditLog);
 }
 
 // API Functions
 async function apiGet(endpoint) {
   try {
-    const response = await fetch(`${API_BASE}${endpoint}`);
+    const response = await fetch(`${API_BASE}${endpoint}`, { credentials: 'same-origin' });
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new Error('Unauthorized');
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
   } catch (err) {
-    showToast('error', `API Error: ${err.message}`);
+    if (err.message !== 'Unauthorized') {
+      showToast('error', `API Error: ${err.message}`);
+    }
     throw err;
   }
 }
@@ -223,13 +439,20 @@ async function apiPost(endpoint, data) {
   try {
     const response = await fetch(`${API_BASE}${endpoint}`, {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new Error('Unauthorized');
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
   } catch (err) {
-    showToast('error', `API Error: ${err.message}`);
+    if (err.message !== 'Unauthorized') {
+      showToast('error', `API Error: ${err.message}`);
+    }
     throw err;
   }
 }
@@ -238,13 +461,20 @@ async function apiPut(endpoint, data) {
   try {
     const response = await fetch(`${API_BASE}${endpoint}`, {
       method: 'PUT',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new Error('Unauthorized');
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
   } catch (err) {
-    showToast('error', `API Error: ${err.message}`);
+    if (err.message !== 'Unauthorized') {
+      showToast('error', `API Error: ${err.message}`);
+    }
     throw err;
   }
 }
@@ -252,14 +482,28 @@ async function apiPut(endpoint, data) {
 async function apiDelete(endpoint) {
   try {
     const response = await fetch(`${API_BASE}${endpoint}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      credentials: 'same-origin'
     });
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new Error('Unauthorized');
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
   } catch (err) {
-    showToast('error', `API Error: ${err.message}`);
+    if (err.message !== 'Unauthorized') {
+      showToast('error', `API Error: ${err.message}`);
+    }
     throw err;
   }
+}
+
+function handleUnauthorized() {
+  // If we're already on the login page, don't loop.
+  if (document.getElementById('login-page')?.classList.contains('active')) return;
+  showLogin();
+  showToast('error', 'Session expired. Please log in again.');
 }
 
 // Dashboard
@@ -810,7 +1054,66 @@ function startAutoRefresh() {
     if (currentPage === 'dashboard') {
       loadDashboardData();
     }
+    
+    // Update memory stats every 5 seconds
+    if (currentPage === 'dashboard') {
+      loadMemoryStats();
+    }
   }, 10000);
+}
+
+// Memory Management
+async function loadMemoryStats() {
+  if (currentPage !== 'dashboard') return;
+  try {
+    const data = await apiGet('/memory');
+    
+    if (data.formatted) {
+      document.getElementById('heap-usage').textContent = data.formatted.heapUsed;
+      document.getElementById('memory-rss').textContent = data.formatted.rss;
+    }
+    
+    document.getElementById('gc-runs').textContent = data.gcRuns;
+    
+    // Update memory bar
+    const usagePercent = (data.usagePercent * 100).toFixed(1);
+    document.getElementById('memory-usage-text').textContent = usagePercent + '%';
+    
+    const barFill = document.getElementById('memory-bar-fill');
+    barFill.style.width = Math.min(usagePercent, 100) + '%';
+    
+    // Update bar color based on health
+    barFill.classList.remove('warning', 'critical');
+    const statusEl = document.getElementById('memory-status');
+    
+    if (usagePercent >= 95) {
+      barFill.classList.add('critical');
+      statusEl.className = 'badge badge-danger';
+      statusEl.textContent = 'Critical';
+    } else if (usagePercent >= 80) {
+      barFill.classList.add('warning');
+      statusEl.className = 'badge badge-warning';
+      statusEl.textContent = 'Warning';
+    } else {
+      statusEl.className = 'badge badge-success';
+      statusEl.textContent = 'Healthy';
+    }
+  } catch (err) {
+    // Memory stats might not be available yet
+  }
+}
+
+async function manualMemoryCleanup() {
+  try {
+    const result = await apiPost('/memory/cleanup', {});
+    if (result.success) {
+      showToast('success', 'Memory cleanup completed');
+      loadMemoryStats();
+    }
+  } catch (err) {
+    console.error('Memory cleanup failed:', err);
+    showToast('error', 'Memory cleanup failed');
+  }
 }
 
 // Bot Detection
@@ -1055,7 +1358,7 @@ async function loadSettings() {
 
 async function exportConfig() {
   try {
-    const response = await fetch(`${API_BASE}/export`);
+    const response = await fetch(`${API_BASE}/export`, { credentials: 'same-origin' });
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1099,3 +1402,184 @@ window.removeAllowedCountry = removeAllowedCountry;
 window.toggleWebhook = toggleWebhook;
 window.testWebhook = testWebhook;
 window.deleteWebhook = deleteWebhook;
+window.manualMemoryCleanup = manualMemoryCleanup;
+window.editUser = editUser;
+window.deleteUser = deleteUser;
+window.resetUserPassword = resetUserPassword;
+
+// ============================================================
+// User management (admin)
+// ============================================================
+
+async function loadUsers() {
+  try {
+    const data = await apiGet('/users');
+    const tbody = document.getElementById('users-table');
+    if (!tbody) return;
+    if (!data.users.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center">No users</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.users.map(u => `
+      <tr>
+        <td><code>${escapeHtml(u.username)}</code></td>
+        <td>${escapeHtml(u.displayName || '')}</td>
+        <td><span class="badge badge-${u.role === 'admin' ? 'danger' : u.role === 'operator' ? 'warning' : 'info'}">${u.role}</span></td>
+        <td>${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : ''}</td>
+        <td>${u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '<span class="text-muted">never</span>'}</td>
+        <td>
+          <button class="btn btn-sm btn-secondary" onclick="editUser('${u.id}')" title="Edit">
+            <i class="fas fa-edit"></i>
+          </button>
+          <button class="btn btn-sm btn-warning" onclick="resetUserPassword('${u.id}', '${escapeHtml(u.username)}')" title="Reset password">
+            <i class="fas fa-key"></i>
+          </button>
+          <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.id}', '${escapeHtml(u.username)}')" title="Delete">
+            <i class="fas fa-trash"></i>
+          </button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    // 401 handled in apiGet
+  }
+}
+
+function openUserModal(user) {
+  const modal = document.getElementById('user-modal');
+  const title = document.getElementById('user-modal-title');
+  const pwGroup = document.getElementById('user-password-group');
+  const pwInput = document.getElementById('user-password');
+  const editId = document.getElementById('user-edit-id');
+  if (user) {
+    title.textContent = 'Edit User';
+    editId.value = user.id;
+    document.getElementById('user-username').value = user.username;
+    document.getElementById('user-username').disabled = true;
+    document.getElementById('user-displayname').value = user.displayName || '';
+    document.getElementById('user-role-select').value = user.role || 'viewer';
+    pwGroup.style.display = 'none';
+    pwInput.required = false;
+  } else {
+    title.textContent = 'Add User';
+    editId.value = '';
+    document.getElementById('user-username').disabled = false;
+    document.getElementById('user-form').reset();
+    pwGroup.style.display = '';
+    pwInput.required = true;
+  }
+  modal.classList.add('active');
+}
+
+async function editUser(id) {
+  try {
+    const data = await apiGet('/users');
+    const user = (data.users || []).find(u => u.id === id);
+    if (user) openUserModal(user);
+  } catch {}
+}
+
+async function handleUserSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('user-edit-id').value;
+  const payload = {
+    username: document.getElementById('user-username').value.trim(),
+    displayName: document.getElementById('user-displayname').value.trim() || undefined,
+    role: document.getElementById('user-role-select').value
+  };
+  if (!id) payload.password = document.getElementById('user-password').value;
+
+  try {
+    if (id) {
+      await apiPut('/users/' + encodeURIComponent(id), payload);
+      showToast('success', 'User updated');
+    } else {
+      await apiPost('/users', payload);
+      showToast('success', 'User created');
+    }
+    closeModals();
+    loadUsers();
+  } catch (err) {
+    // toast already shown
+  }
+}
+
+async function deleteUser(id, username) {
+  if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  try {
+    await apiDelete('/users/' + encodeURIComponent(id));
+    showToast('success', 'User deleted');
+    loadUsers();
+  } catch {}
+}
+
+async function resetUserPassword(id, username) {
+  if (!confirm(`Reset password for "${username}"? A new random password will be generated and shown once.`)) return;
+  try {
+    const res = await apiPost('/users/' + encodeURIComponent(id) + '/reset-password', {});
+    if (res.password) {
+      prompt('New password for ' + username + ' (copy it now):', res.password);
+    }
+  } catch {}
+}
+
+// ============================================================
+// Change own password
+// ============================================================
+
+async function handlePasswordChange(e) {
+  e.preventDefault();
+  const oldPassword = document.getElementById('pw-current').value;
+  const newPassword = document.getElementById('pw-new').value;
+  try {
+    await apiPost('/auth/change-password', { oldPassword, newPassword });
+    showToast('success', 'Password changed');
+    document.getElementById('password-form').reset();
+    closeModals();
+  } catch {}
+}
+
+// ============================================================
+// Audit log
+// ============================================================
+
+async function loadAuditLog() {
+  const userFilter = document.getElementById('audit-user-filter')?.value.trim();
+  const actionFilter = document.getElementById('audit-action-filter')?.value.trim();
+  const qs = new URLSearchParams();
+  if (userFilter) qs.set('user', userFilter);
+  if (actionFilter) qs.set('action', actionFilter);
+  qs.set('limit', '200');
+  try {
+    const data = await apiGet('/audit?' + qs.toString());
+    const tbody = document.getElementById('audit-table');
+    if (!tbody) return;
+    if (!data.entries.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center">No audit entries</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.entries.map(e => `
+      <tr>
+        <td>${new Date(e.timestamp).toLocaleString()}</td>
+        <td><code>${escapeHtml(e.user || 'system')}</code></td>
+        <td>${escapeHtml(e.action)}</td>
+        <td>${escapeHtml(e.ip || '')}</td>
+        <td><span class="badge badge-${e.success ? 'success' : 'danger'}">${e.success ? 'ok' : 'fail'}</span></td>
+        <td><code class="text-muted">${escapeHtml(JSON.stringify(e.details || {}))}</code></td>
+      </tr>
+    `).join('');
+  } catch {}
+}
+
+// ============================================================
+// HTML escape utility (used in dynamic content)
+// ============================================================
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

@@ -3,6 +3,10 @@
  */
 
 const { WAFEngine } = require('../src/waf-engine');
+const { RedisClient } = require('../src/cache/redis-client');
+const { IPReputationService } = require('../src/ip-reputation');
+const { JWTValidator } = require('../src/jwt-validator');
+const { CSRFProtection } = require('../src/csrf-protection');
 
 console.log('🧪 Running WAF Tests\n');
 
@@ -233,7 +237,6 @@ test('Can update rule', () => {
 test('Tracks statistics', async () => {
   const initialStats = engine.getStats();
   
-  // Trigger some blocks
   await engine.analyzeRequest({
     url: "/test?q=<script>",
     path: "/test",
@@ -246,6 +249,94 @@ test('Tracks statistics', async () => {
   assert(stats.totalRequests > initialStats.totalRequests, 'Should track total requests');
   assert(stats.blockedRequests > initialStats.blockedRequests, 'Should track blocked requests');
   assert(stats.threatsDetected > initialStats.threatsDetected, 'Should track threats');
+});
+
+// NEW FEATURE TESTS
+
+// Redis rate limiting fallback
+test('Rate limiting works without Redis', async () => {
+  const e = new WAFEngine({ enableWebhooks: false, enableBotDetection: false });
+  let blocked = false;
+  for (let i = 0; i < 105; i++) {
+    const result = await e.analyzeRequest({
+      url: "/api/test",
+      path: "/api/test",
+      method: 'GET',
+      headers: { 'x-forwarded-for': '10.0.0.1', 'user-agent': 'Mozilla/5.0 Test' }
+    });
+    if (!result.allowed) {
+      blocked = true;
+      assert(result.violations.some(v => v.type === 'rate_limit' || v.type === 'endpoint_rate_limit'), 'Should detect rate limit');
+      break;
+    }
+  }
+  assert(blocked, 'Should block after exceeding rate limit');
+});
+
+// IP Reputation blocking
+test('IP reputation blocks critical risk IPs', async () => {
+  const rep = new IPReputationService();
+  rep.addToBlacklist('10.20.30.40');
+  const e = new WAFEngine({ enableWebhooks: false, ipReputation: rep, enableIPReputation: true });
+  const result = await e.analyzeRequest({
+    url: "/api/users",
+    path: "/api/users",
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.20.30.40' }
+  });
+  assert(!result.allowed, 'Should block IP with critical reputation');
+  assert(result.violations.some(v => v.type === 'ip_reputation'), 'Should detect IP reputation violation');
+});
+
+// CSRF Protection
+test('CSRF protection generates and verifies tokens', () => {
+  const csrf = new CSRFProtection({ secret: 'test-secret' });
+  const token = csrf.generateToken('session-1');
+  assert(token, 'Should generate token');
+  assert(csrf.verifyToken(token, 'session-1'), 'Should verify valid token');
+  assert(!csrf.verifyToken(token, 'session-2'), 'Should reject wrong session');
+  assert(!csrf.verifyToken('invalid-token'), 'Should reject invalid token');
+});
+
+// JWT Validator
+test('JWT validator decodes tokens', () => {
+  const jwt = new JWTValidator({ secret: 'test-secret' });
+  const token = jwt.generate({ sub: 'user-1', role: 'admin' });
+  assert(token, 'Should generate token');
+  const decoded = jwt.decode(token);
+  assert(decoded && decoded.payload.sub === 'user-1', 'Should decode token');
+});
+
+// Import/Export regex round-trip
+test('Import/export preserves regex patterns', () => {
+  const e = new WAFEngine({ enableWebhooks: false });
+  const exported = e.exportConfig();
+  const rule = exported.rules.find(r => r.id === 'sql-injection-1');
+  assert(rule && typeof rule.pattern === 'string', 'Should export pattern as string');
+  assert(rule.flags === 'i', 'Should export flags');
+  
+  const e2 = new WAFEngine({ enableWebhooks: false });
+  e2.importConfig(exported);
+  const importedRule = e2.getRule('sql-injection-1');
+  assert(importedRule.pattern instanceof RegExp, 'Should import pattern as RegExp');
+  assert(importedRule.pattern.test("1 UNION SELECT * FROM users"), 'Imported regex should still match');
+});
+
+// Prometheus metrics callback (no crash)
+test('Metrics callback does not crash engine', async () => {
+  let called = false;
+  const e = new WAFEngine({
+    enableWebhooks: false,
+    metricsCallback: () => { called = true; }
+  });
+  await e.analyzeRequest({
+    url: "/test?q=<script>",
+    path: "/test",
+    query: { q: "<script>" },
+    method: 'GET',
+    headers: {}
+  });
+  assert(called, 'Metrics callback should have been called');
 });
 
 // Summary

@@ -8,6 +8,8 @@ const { BotDetector } = require('./bot-detector');
 const { GeoBlocker } = require('./geo-blocker');
 const { WebhookNotifier } = require('./webhook');
 const { RequestSanitizer } = require('./sanitizer');
+const { RedisClient } = require('./cache/redis-client');
+const { IPReputationService } = require('./ip-reputation');
 
 // Default security rules
 const DEFAULT_RULES = [
@@ -35,7 +37,7 @@ const DEFAULT_RULES = [
     id: 'path-traversal-1',
     name: 'Path Traversal',
     type: 'path_traversal',
-    pattern: /(\.\.\/|\.\.\\|%2e%2e%2f|%2e%2e\/|\.%2f|%2e\.)/i,
+    pattern: /(\.\.\/|\.\.\\|%2e%2e%2f|%2e%2e\/|.%2f|%2e\.)/i,
     description: 'Detects directory traversal attempts',
     severity: 'medium',
     enabled: true,
@@ -96,8 +98,6 @@ const DEFAULT_RULES = [
 class WAFEngine {
   constructor(options = {}) {
     this.rules = [...DEFAULT_RULES];
-    this.rateLimiter = new Map();
-    this.endpointRateLimiters = new Map();
     this.blockedIPs = new Set();
     this.whitelist = new Set();
     this.blockedCountries = new Set();
@@ -114,6 +114,18 @@ class WAFEngine {
     this.geoBlocker = new GeoBlocker(options.geoBlocking);
     this.webhook = new WebhookNotifier(options.webhooks);
     this.sanitizer = new RequestSanitizer(options.sanitization);
+    this.workerQueue = options.workerQueue || null;
+    
+    // Redis-backed rate limiting
+    this.redisClient = options.redisClient || null;
+    this.rateLimiter = new Map();
+    this.endpointRateLimiters = new Map();
+    
+    // IP Reputation
+    this.ipReputation = options.ipReputation || null;
+    
+    // Prometheus metrics callback
+    this.metricsCallback = options.metricsCallback || null;
     
     // Configuration
     this.config = {
@@ -122,6 +134,8 @@ class WAFEngine {
       enableGeoBlocking: options.enableGeoBlocking || false,
       enableSanitization: options.enableSanitization !== false,
       enableWebhooks: options.enableWebhooks !== false,
+      enableWorkerQueue: options.enableWorkerQueue || false,
+      enableIPReputation: options.enableIPReputation !== false,
       ...options
     };
   }
@@ -148,6 +162,7 @@ class WAFEngine {
         clientIP
       };
       this.notifyWebhook('block', req, result, extraInfo);
+      this.recordMetrics(req.method, true, 'ip_blacklist', 'high');
       return result;
     }
 
@@ -193,8 +208,29 @@ class WAFEngine {
       }
     }
 
+    // IP Reputation check
+    if (this.config.enableIPReputation && this.ipReputation) {
+      try {
+        const rep = await this.ipReputation.checkIP(clientIP);
+        if (rep.risk === 'high' || rep.risk === 'critical') {
+          violations.push({
+            rule: 'ip-reputation',
+            type: 'ip_reputation',
+            severity: rep.risk === 'critical' ? 'critical' : 'high',
+            reason: `IP reputation: ${rep.risk} (${rep.score}) - ${rep.reason}`,
+            action: 'block'
+          });
+          extraInfo.ipReputation = rep;
+        } else if (rep.risk === 'medium') {
+          extraInfo.ipReputation = rep;
+        }
+      } catch {
+        // IP reputation failures should not block
+      }
+    }
+
     // Check rate limiting
-    const rateLimitCheck = this.checkRateLimit(clientIP);
+    const rateLimitCheck = await this.checkRateLimit(clientIP);
     if (!rateLimitCheck.allowed) {
       violations.push({
         rule: 'rate-limit',
@@ -206,7 +242,7 @@ class WAFEngine {
     }
 
     // Check endpoint-specific rate limiting
-    const endpointLimit = this.checkEndpointRateLimit(clientIP, req.path, req.method);
+    const endpointLimit = await this.checkEndpointRateLimit(clientIP, req.path, req.method);
     if (!endpointLimit.allowed) {
       violations.push({
         rule: 'endpoint-rate-limit',
@@ -252,12 +288,68 @@ class WAFEngine {
       clientIP
     };
 
+    // Record prometheus metrics
+    const topThreat = violations.find(v => v.action === 'block');
+    this.recordMetrics(req.method, blocked, topThreat?.type, topThreat?.severity);
+
     // Send webhook notification if blocked
     if (blocked && this.config.enableWebhooks) {
       this.notifyWebhook('block', req, result, extraInfo);
     }
+
+    // Dispatch to worker queue for background analysis
+    if (this.config.enableWorkerQueue && this.workerQueue) {
+      this.dispatchToWorkerQueue(req, result);
+    }
     
     return result;
+  }
+
+  recordMetrics(method, blocked, reason, severity) {
+    if (this.metricsCallback) {
+      try {
+        this.metricsCallback(method, blocked, reason, severity);
+      } catch {
+        // metrics failures are non-critical
+      }
+    }
+  }
+
+  /**
+   * Dispatch request to worker queue for background analysis
+   */
+  async dispatchToWorkerQueue(req, result) {
+    try {
+      const queue = this.workerQueue();
+      if (!queue || !queue.addRequestAnalysis) return;
+
+      queue.addRequestAnalysis({
+        url: req.url,
+        path: req.path,
+        method: req.method,
+        ip: this.getClientIP(req),
+        headers: req.headers,
+        body: req.body,
+        query: req.query,
+        violations: result.violations,
+      }).catch(err => {
+        if (err.code !== 'ECONNREFUSED' && err.code !== 'NR_CLOSED') {
+          console.error('Worker queue error:', err.message);
+        }
+      });
+
+      if (result.violations.length > 0) {
+        queue.addThreatProcessing({
+          type: result.violations[0].type,
+          severity: result.violations[0].severity,
+          ip: this.getClientIP(req),
+          url: req.url,
+          timestamp: Date.now()
+        }).catch(() => {});
+      }
+    } catch (err) {
+      // Queue dispatch failures should never break the main flow
+    }
   }
 
   /**
@@ -287,7 +379,6 @@ class WAFEngine {
       userAgent: req.headers['user-agent'] || ''
     };
 
-    // Flatten for easier searching
     data.all = JSON.stringify(data).toLowerCase();
     
     return data;
@@ -309,7 +400,7 @@ class WAFEngine {
         return {
           found: true,
           location: location,
-          value: strValue.substring(0, 100) // Truncate for logging
+          value: strValue.substring(0, 100)
         };
       }
     }
@@ -318,13 +409,27 @@ class WAFEngine {
   }
 
   /**
-   * Rate limiting check
+   * Rate limiting check (Redis-backed with in-memory fallback)
    */
-  checkRateLimit(clientIP) {
-    const windowMs = 60000; // 1 minute
+  async checkRateLimit(clientIP) {
+    const windowSeconds = 60;
     const maxRequests = 100;
-    
+    const key = `ratelimit:global:${clientIP}`;
+
+    if (this.redisClient) {
+      try {
+        const count = await this.redisClient.increment(key, windowSeconds);
+        if (count > maxRequests) {
+          return { allowed: false, count };
+        }
+        return { allowed: true, count };
+      } catch {
+        // Fallback to memory
+      }
+    }
+
     const now = Date.now();
+    const windowMs = windowSeconds * 1000;
     const windowStart = now - windowMs;
     
     if (!this.rateLimiter.has(clientIP)) {
@@ -333,41 +438,50 @@ class WAFEngine {
     }
 
     const record = this.rateLimiter.get(clientIP);
-    
     if (record.firstRequest < windowStart) {
-      // Reset window
       record.count = 1;
       record.firstRequest = now;
       return { allowed: true };
     }
 
     record.count++;
-    
     if (record.count > maxRequests) {
       return { allowed: false, count: record.count };
     }
-
     return { allowed: true, count: record.count };
   }
 
   /**
-   * Endpoint-specific rate limiting
+   * Endpoint-specific rate limiting (Redis-backed with in-memory fallback)
    */
-  checkEndpointRateLimit(clientIP, path, method) {
-    const key = `${clientIP}:${method}:${path}`;
-    const windowMs = 60000; // 1 minute
-    const maxRequests = 30; // Stricter limit per endpoint
+  async checkEndpointRateLimit(clientIP, path, method) {
+    const key = `ratelimit:endpoint:${clientIP}:${method}:${path}`;
+    const windowSeconds = 60;
+    const maxRequests = 30;
     
+    if (this.redisClient) {
+      try {
+        const count = await this.redisClient.increment(key, windowSeconds);
+        if (count > maxRequests) {
+          return { allowed: false, count };
+        }
+        return { allowed: true, count };
+      } catch {
+        // Fallback to memory
+      }
+    }
+
+    const mapKey = `${clientIP}:${method}:${path}`;
     const now = Date.now();
+    const windowMs = windowSeconds * 1000;
     const windowStart = now - windowMs;
     
-    if (!this.endpointRateLimiters.has(key)) {
-      this.endpointRateLimiters.set(key, { count: 1, firstRequest: now });
+    if (!this.endpointRateLimiters.has(mapKey)) {
+      this.endpointRateLimiters.set(mapKey, { count: 1, firstRequest: now });
       return { allowed: true };
     }
 
-    const record = this.endpointRateLimiters.get(key);
-    
+    const record = this.endpointRateLimiters.get(mapKey);
     if (record.firstRequest < windowStart) {
       record.count = 1;
       record.firstRequest = now;
@@ -375,11 +489,9 @@ class WAFEngine {
     }
 
     record.count++;
-    
     if (record.count > maxRequests) {
       return { allowed: false, count: record.count };
     }
-
     return { allowed: true, count: record.count };
   }
 
@@ -492,7 +604,8 @@ class WAFEngine {
       exportedAt: new Date().toISOString(),
       rules: this.rules.map(rule => ({
         ...rule,
-        pattern: rule.pattern.toString() // Convert regex to string
+        pattern: rule.pattern.source,
+        flags: rule.pattern.flags
       })),
       blockedIPs: Array.from(this.blockedIPs),
       whitelistedIPs: Array.from(this.whitelist),
@@ -505,15 +618,13 @@ class WAFEngine {
 
   importConfig(config) {
     try {
-      // Import rules
       if (config.rules) {
         this.rules = config.rules.map(rule => ({
           ...rule,
-          pattern: new RegExp(rule.pattern.slice(1, -2), 'i') // Convert string back to regex
+          pattern: new RegExp(rule.pattern, rule.flags || 'i')
         }));
       }
 
-      // Import IPs
       if (config.blockedIPs) {
         this.blockedIPs = new Set(config.blockedIPs);
       }
@@ -521,7 +632,6 @@ class WAFEngine {
         this.whitelist = new Set(config.whitelistedIPs);
       }
 
-      // Import countries
       if (config.blockedCountries) {
         this.blockedCountries = new Set(config.blockedCountries);
         config.blockedCountries.forEach(c => this.geoBlocker.blockCountry(c));
@@ -531,7 +641,6 @@ class WAFEngine {
         config.allowedCountries.forEach(c => this.geoBlocker.allowCountry(c));
       }
 
-      // Import config
       if (config.config) {
         this.config = { ...this.config, ...config.config };
       }

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,7 +8,50 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-  <div class="app">
+  <!-- Login Page -->
+  <div class="page active login-page" id="login-page">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="login-logo">
+          <i class="fas fa-shield-alt"></i>
+        </div>
+        <h1>🛡️ Kavach WAF</h1>
+        <p>Sign in to manage your firewall</p>
+      </div>
+      <form id="login-form" class="login-form" autocomplete="on">
+        <div class="form-group">
+          <label for="login-username">Username</label>
+          <div class="input-with-icon">
+            <i class="fas fa-user"></i>
+            <input type="text" id="login-username" name="username" class="form-control" required autocomplete="username" autofocus>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <div class="input-with-icon">
+            <i class="fas fa-lock"></i>
+            <input type="password" id="login-password" name="password" class="form-control" required autocomplete="current-password">
+          </div>
+        </div>
+        <div class="login-error" id="login-error" hidden></div>
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit-btn">
+          <i class="fas fa-sign-in-alt"></i>
+          <span>Sign In</span>
+        </button>
+      </form>
+      <div class="login-footer">
+        <small>Default credentials are printed in the server console on first run.</small>
+      </div>
+    </div>
+    <footer class="app-footer login-footer-bottom">
+      <div class="footer-content">
+        <p>🛡️ <strong>Kavach WAF</strong> — Made with ❤️ by <strong>Abhirup Guha</strong> (Fir3St0rm)</p>
+        <p class="footer-company">@ Info Security Solution</p>
+      </div>
+    </footer>
+  </div>
+
+  <div class="app" id="app-shell" hidden>
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="logo">
@@ -52,6 +95,14 @@
           <i class="fas fa-cog"></i>
           <span>Settings</span>
         </a>
+        <a href="#users" class="nav-item admin-only" data-page="users" hidden>
+          <i class="fas fa-users-cog"></i>
+          <span>Users</span>
+        </a>
+        <a href="#audit" class="nav-item admin-only" data-page="audit" hidden>
+          <i class="fas fa-clipboard-list"></i>
+          <span>Audit Log</span>
+        </a>
       </nav>
       <div class="sidebar-footer">
         <div class="status-indicator">
@@ -72,8 +123,15 @@
       <header class="header">
         <h1 id="page-title">Dashboard</h1>
         <div class="header-actions">
+          <div class="user-info" id="user-info">
+            <span class="user-name" id="user-display-name">User</span>
+            <span class="user-role" id="user-role">viewer</span>
+          </div>
           <button class="btn btn-secondary" id="refresh-btn">
             <i class="fas fa-sync-alt"></i> Refresh
+          </button>
+          <button class="btn btn-secondary" id="logout-btn" title="Log out">
+            <i class="fas fa-sign-out-alt"></i>
           </button>
         </div>
       </header>
@@ -115,6 +173,55 @@
             <div class="stat-info">
               <span class="stat-value" id="active-rules">0</span>
               <span class="stat-label">Active Rules</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon bg-purple">
+              <i class="fas fa-microchip"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="heap-usage">0 MB</span>
+              <span class="stat-label">Heap Usage</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon bg-teal">
+              <i class="fas fa-memory"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="memory-rss">0 MB</span>
+              <span class="stat-label">Memory RSS</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon bg-yellow">
+              <i class="fas fa-broom"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-value" id="gc-runs">0</span>
+              <span class="stat-label">GC Runs</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Memory Health Bar -->
+        <div class="card" style="margin-bottom: 20px;">
+          <div class="card-header">
+            <h3>💾 Memory Health</h3>
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span id="memory-status" class="badge badge-success">Healthy</span>
+              <button class="btn btn-sm btn-secondary" onclick="manualMemoryCleanup()" title="Force memory cleanup">
+                <i class="fas fa-broom"></i>
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="memory-bar-container">
+              <div class="memory-bar-fill" id="memory-bar-fill"></div>
+              <div class="memory-bar-labels">
+                <span id="memory-usage-text">0%</span>
+                <span id="memory-threshold-text">Threshold: 80%</span>
+              </div>
             </div>
           </div>
         </div>
@@ -522,6 +629,13 @@
               <p class="help-text">Backup or restore your WAF configuration including rules, blocked IPs, and settings.</p>
             </div>
             <div class="settings-section">
+              <h4>Account</h4>
+              <button class="btn btn-secondary" id="change-password-btn">
+                <i class="fas fa-key"></i> Change Password
+              </button>
+              <p class="help-text">Change the password for your account.</p>
+            </div>
+            <div class="settings-section">
               <h4>Statistics</h4>
               <button class="btn btn-danger" id="reset-stats-btn">
                 <i class="fas fa-redo"></i> Reset All Statistics
@@ -556,6 +670,68 @@
               <p><strong>Web Application Firewall v2.0.0</strong></p>
               <p>An enhanced rule-based WAF for Node.js applications.</p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Users Page (admin only) -->
+      <div class="page" id="users-page">
+        <div class="card">
+          <div class="card-header">
+            <h3>User Management</h3>
+            <button class="btn btn-primary" id="add-user-btn">
+              <i class="fas fa-user-plus"></i> Add User
+            </button>
+          </div>
+          <div class="card-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Display Name</th>
+                  <th>Role</th>
+                  <th>Created</th>
+                  <th>Last Login</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-table">
+                <tr><td colspan="6" class="text-center">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit Log Page (admin only) -->
+      <div class="page" id="audit-page">
+        <div class="card">
+          <div class="card-header">
+            <h3>Audit Log</h3>
+            <div class="filter-group">
+              <input type="text" id="audit-user-filter" class="form-control" placeholder="Filter by user">
+              <input type="text" id="audit-action-filter" class="form-control" placeholder="Filter by action">
+              <button class="btn btn-secondary" id="audit-refresh-btn">
+                <i class="fas fa-sync-alt"></i> Refresh
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>User</th>
+                  <th>Action</th>
+                  <th>IP</th>
+                  <th>Success</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody id="audit-table">
+                <tr><td colspan="6" class="text-center">Loading...</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -704,6 +880,72 @@
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Webhook</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal for user create/edit -->
+  <div class="modal" id="user-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="user-modal-title">Add User</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="user-form">
+        <input type="hidden" id="user-edit-id">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" id="user-username" class="form-control" required pattern="[a-zA-Z0-9_-]{3,32}">
+          <small class="help-text">3-32 chars, letters/digits/underscore/dash</small>
+        </div>
+        <div class="form-group">
+          <label>Display Name</label>
+          <input type="text" id="user-displayname" class="form-control">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Role</label>
+            <select id="user-role-select" class="form-control">
+              <option value="viewer">Viewer (read-only)</option>
+              <option value="operator">Operator (manage rules, IPs, webhooks)</option>
+              <option value="admin">Admin (full control)</option>
+            </select>
+          </div>
+          <div class="form-group flex-1" id="user-password-group">
+            <label>Password</label>
+            <input type="password" id="user-password" class="form-control" minlength="8">
+            <small class="help-text">Min 8 chars, must include letter and number</small>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal for self password change -->
+  <div class="modal" id="password-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Change Password</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <form id="password-form">
+        <div class="form-group">
+          <label>Current Password</label>
+          <input type="password" id="pw-current" class="form-control" required autocomplete="current-password">
+        </div>
+        <div class="form-group">
+          <label>New Password</label>
+          <input type="password" id="pw-new" class="form-control" required minlength="8" autocomplete="new-password">
+          <small class="help-text">Min 8 chars, must include letter and number</small>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Change Password</button>
         </div>
       </form>
     </div>

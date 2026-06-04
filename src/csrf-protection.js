@@ -58,14 +58,18 @@ class CSRFProtection {
       }
 
       // Check timestamp
-      const timestamp = parseInt(parts[0]);
+      const hasSession = parts.length === 3;
+      const timestamp = parseInt(hasSession ? parts[1] : parts[0]);
       if (Date.now() - timestamp > this.maxAge) {
         return false;
       }
 
       // Verify session if provided
-      if (sessionId && parts[1] !== sessionId) {
-        return false;
+      if (sessionId) {
+        const tokenSession = hasSession ? parts[0] : null;
+        if (tokenSession !== sessionId) {
+          return false;
+        }
       }
 
       return true;
